@@ -39,7 +39,7 @@
 
 ```
 Import-Module ./AES-Encoder.ps1
-Invoke-AES-Encoder -InFile invoke-mimikatz.ps1 -OutFile aesmimi.ps1
+InvokeAESEncoder -InFile invoke-mimikatz.ps1 -OutFile aesmimi.ps1
 
 or
 
