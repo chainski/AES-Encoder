@@ -40,14 +40,12 @@
 ```
 Import-Module ./AES-Encoder.ps1
 Invoke-AES-Encoder -InFile invoke-mimikatz.ps1 -OutFile aesmimi.ps1
+
+or
+
+powershell .\AES-Encoder.ps1 -InFile invoke-mimikatz.ps1 -OutFile aesmimi.ps1
 ```
 
-You will now have an encrypted aesmimi.ps1 file in your current working directory. You can use it in the same way as you would the original script, so in this case:
-
-```
-Import-Module ./AES-Encoder.ps1
-Invoke-Mimikatz
-```
 It also supports recursive layering via the -Iterations flag.
 
 ```
