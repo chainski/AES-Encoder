@@ -16,6 +16,18 @@
 #    Made by https://github.com/chainski
 
 
+[CmdletBinding()]
+Param(
+    [Parameter(ValueFromPipeline, ValueFromPipelineByPropertyName)]
+    [string] $infile,
+
+    [Parameter(ValueFromPipeline, ValueFromPipelineByPropertyName)]
+    [string] $outfile,
+
+    [Parameter(ValueFromPipeline, ValueFromPipelineByPropertyName)]
+    [string] $iterations = 4
+)
+
 # CONFIG
 $script:AESConfig = @{
     MinVarLength         = 14
@@ -36,6 +48,7 @@ $script:AESConfig = @{
     DefaultCompression   = 'Random'
     IncludeAMSIStub      = $true
 }
+
 try { $host.UI.RawUI.WindowTitle = 'Powershell AES-Encoder' } catch {}
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -226,6 +239,14 @@ function Escape-SingleQuoted {
     return $Value.Replace("'", "''")
 }
 
+function Format-Size {
+    param([long]$Bytes)
+    if ($Bytes -ge 1GB)     { '{0:N2} GB' -f ($Bytes / 1GB) }
+    elseif ($Bytes -ge 1MB) { '{0:N2} MB' -f ($Bytes / 1MB) }
+    elseif ($Bytes -ge 1KB) { '{0:N2} KB' -f ($Bytes / 1KB) }
+    else                    { '{0} B'    -f $Bytes }
+}
+
 # AMSI Bypass more can be found at https://amsi.fail
 function New-AmsiStub {
     $nAsm = RandomFragment
@@ -352,7 +373,6 @@ function InvokeAESEncoder {
      The output script is highly randomized in order to make static analysis even more difficut.
      It also lets you layer this recursively however many times you want in order to attempt to foil dynamic & heuristic detection.
 
-
     .PARAMETER InFile
     Specifies the script to obfuscate/encrypt.
 
@@ -364,24 +384,27 @@ function InvokeAESEncoder {
 
     .EXAMPLE
 
-    PS> .\AES-Encoder.ps1 -i reverse-shell.ps1 -o obfuscated.ps1 -Iterations 5
+    PS> 
+	Import-Module ./AES-Encoder.ps1
+    InvokeAESEncoder -InFile invoke-mimikatz.ps1 -OutFile aesmimi.ps1 -Iterations 5
+	
+	or
+	
+	powershell .\AES-Encoder.ps1 -InFile invoke-mimikatz.ps1 -OutFile aesmimi.ps1 -Iterations 4
 
     .LINK
 
     https://github.com/chainski/AES-Encoder
 
     #>
+    
     [CmdletBinding()]
-    Param (
-        [Parameter(Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
-        [Alias('i')]
+    Param([Parameter(ValueFromPipeline, ValueFromPipelineByPropertyName)]
         [string] $infile,
-        [Parameter(Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
-        [Alias('o')]
+        [Parameter(ValueFromPipeline, ValueFromPipelineByPropertyName)]
         [string] $outfile,
-        [Parameter(Mandatory = $false, ValueFromPipeline, ValueFromPipelineByPropertyName)]
-        [Alias('n')]
-        [string] $iterations
+        [Parameter(ValueFromPipeline, ValueFromPipelineByPropertyName)]
+        [string] $iterations = 4
     )
     Process {
         if (-not $PSBoundParameters.ContainsKey('iterations')) {
@@ -405,11 +428,22 @@ function InvokeAESEncoder {
         Write-Host ('[DEBUG] InFile     = {0}' -f $infile)     -ForegroundColor DarkGray
         Write-Host ('[DEBUG] OutFile    = {0}' -f $outfile)    -ForegroundColor DarkGray
         Write-Host ('[DEBUG] Iterations = {0}' -f $iterations) -ForegroundColor DarkGray
-        if (-not (Test-Path -LiteralPath $infile -PathType Leaf)) {
-            throw ('Input file does not exist: {0}' -f $infile)
+
+        if (-not $infile) {
+            Write-Host '[ERROR] -InFile is required' -ForegroundColor Red
+            return
         }
+        if (-not $outfile) {
+            Write-Host '[ERROR] -OutFile is required' -ForegroundColor Red
+            return
+        }
+        if (-not (Test-Path -LiteralPath $infile -PathType Leaf)) {
+            Write-Host ('[ERROR] Input file does not exist: {0}' -f $infile) -ForegroundColor Red
+            return
+        }
+
         $codebytes = [System.IO.File]::ReadAllBytes($infile)
-        Write-Host ('[DEBUG] Read {0} bytes' -f $codebytes.Length) -ForegroundColor DarkGray
+        Write-Host ('[DEBUG] Read {0}' -f (Format-Size $codebytes.Length)) -ForegroundColor DarkGray
         $code      = $null
         $amsiFinal = ''
         try {
@@ -434,7 +468,7 @@ function InvokeAESEncoder {
                 $compressionStream.Close()
                 $output.Close()
                 $compressedBytes = $output.ToArray()
-                Write-Host ('[DEBUG] Compressed payload = {0} bytes' -f $compressedBytes.Length) -ForegroundColor DarkGray
+                Write-Host ('[DEBUG] Compressed payload = {0}' -f (Format-Size $compressedBytes.Length)) -ForegroundColor DarkGray
                 Write-Host '[*] Generating Encryption Key ...'
                 $aes = [Security.Cryptography.Aes]::Create()
                 $aes.BlockSize = 128
@@ -457,21 +491,24 @@ function InvokeAESEncoder {
                     $amsiFinal = ''
                 }
                 $codebytes = [Text.Encoding]::UTF8.GetBytes($code)
-                Write-Host ('[DEBUG] Iteration {0} complete = {1} bytes' -f $i, $codebytes.Length) -ForegroundColor DarkGray
+                Write-Host ('[DEBUG] Iteration {0} complete = {1}' -f $i, (Format-Size $codebytes.Length)) -ForegroundColor DarkGray
             }
             $finalOutput = $amsiFinal + $code
             Write-Host ('[*] Writing {0} ...' -f $outfile)
             [IO.File]::WriteAllText($outfile, $finalOutput)
-            Write-Output '[+] Done!'
-            Write-Host '[DEBUG] InvokeAESEncoder finished successfully' -ForegroundColor DarkGray
+            Write-Host '[+] Done!' -ForegroundColor Green
         }
         catch {
-            Write-Host ('[DEBUG] Exception: {0}' -f $_.Exception.Message) -ForegroundColor DarkGray
-            Write-Warning ('[!] AES-Encoder failed on {0}: {1}' -f $infile, $_.Exception.Message)
-            throw
+            Write-Host ('[ERROR] {0}' -f $_.Exception.Message) -ForegroundColor Red
+            Write-Host ('[ERROR] AES-Encoder failed on {0}' -f $infile) -ForegroundColor Red
+            return
         }
     }
 }
-if ($MyInvocation.InvocationName -ne '.') {
-    InvokeAESEncoder @args
+$script:IsModuleImport = $null -ne $MyInvocation.MyCommand.Module
+$script:IsDotSourced   = $MyInvocation.InvocationName -eq '.'
+if (-not $script:IsModuleImport -and -not $script:IsDotSourced) {
+    if ($PSBoundParameters.Count -gt 0) {
+        InvokeAESEncoder @PSBoundParameters
+    }
 }
